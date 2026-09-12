@@ -1,11 +1,7 @@
-
 import pandas as pd
 import numpy as np
 
-from sklearn.linear_model import PoissonRegressor
-from sklearn.preprocessing import StandardScaler
-from sklearn.pipeline import make_pipeline
-
+from scipy.stats import poisson
 from sklearn.metrics import (
     accuracy_score,
     precision_score,
@@ -15,54 +11,14 @@ from sklearn.metrics import (
     classification_report
 )
 
-from math import factorial, exp
-
 
 # ============================================================
-# CONFIGURAÇÕES
+# CONFIGURAÇÃO
 # ============================================================
 
-ARQUIVO_PROCESSADO = "dataset/BRA_processado.csv"
-ARQUIVO_ORIGINAL = "dataset/BRA.csv"
+ARQUIVO = "dataset/BRA_processado.csv"
 
-
-# ============================================================
-# 1. CARREGAMENTO
-# ============================================================
-
-print("Carregando dataset processado...")
-
-df_proc = pd.read_csv(ARQUIVO_PROCESSADO)
-
-print(f"Partidas encontradas: {len(df_proc)}")
-
-print("\nCarregando resultados originais...")
-
-df = pd.read_csv(ARQUIVO_ORIGINAL)
-
-df["Date"] = pd.to_datetime(
-    df["Date"],
-    format="%d/%m/%Y",
-    errors="coerce"
-)
-
-df_proc["Date"] = pd.to_datetime(
-    df_proc["Date"],
-    errors="coerce"
-)
-
-df = df.dropna(
-    subset=["HG", "AG", "Res"]
-).copy()
-
-print(f"Partidas após cruzamento: {len(df)}")
-
-
-# ============================================================
-# 2. CARACTERÍSTICAS BASE
-# ============================================================
-
-FEATURES_BASE = [
+FEATURES = [
     "Home_Gols_Media",
     "Home_Gols_Sofridos_Media",
     "Home_Aproveitamento",
@@ -81,1064 +37,965 @@ FEATURES_BASE = [
 
     "Home_Vitorias",
     "Home_Derrotas",
-
     "Away_Vitorias",
     "Away_Derrotas",
 
     "Diferenca_Gols_Media",
     "Diferenca_Gols_Sofridos",
     "Diferenca_Aproveitamento",
-
     "Diferenca_Gols_Casa_Fora"
 ]
 
-FEATURES_BASE = [
-    col for col in FEATURES_BASE
-    if col in df_proc.columns
-]
 
-print(
-    f"Características base utilizadas: "
-    f"{len(FEATURES_BASE)}"
+# ============================================================
+# CARREGAR DADOS
+# ============================================================
+
+df = pd.read_csv(ARQUIVO)
+
+df["Date"] = pd.to_datetime(
+    df["Date"],
+    errors="coerce"
 )
 
-
-# ============================================================
-# 3. PREPARAÇÃO DOS NOMES
-# ============================================================
-
-df["Home"] = df["Home"].astype(str)
-df["Away"] = df["Away"].astype(str)
-
-df_proc["Home"] = df_proc["Home"].astype(str)
-df_proc["Away"] = df_proc["Away"].astype(str)
-
-
-# ============================================================
-# 4. CRUZAMENTO
-# ============================================================
-
-resultados = df[
-    [
-        "Date",
-        "Home",
-        "Away",
-        "HG",
-        "AG"
-    ]
-].copy()
-
-dados = pd.merge(
-    df_proc,
-    resultados,
-    on=[
-        "Date",
-        "Home",
-        "Away"
-    ],
-    how="inner"
+df = df.dropna(
+    subset=FEATURES + ["Res"]
 )
 
-if "Res" not in dados.columns:
-
-    dados["Res"] = np.where(
-        dados["HG"] > dados["AG"],
-        "H",
-        np.where(
-            dados["HG"] < dados["AG"],
-            "A",
-            "D"
-        )
-    )
-
-print(
-    f"Partidas após cruzamento: "
-    f"{len(dados)}"
-)
-
-
-# ============================================================
-# 5. ORDENAÇÃO
-# ============================================================
-
-dados = dados.sort_values(
+df = df.sort_values(
     "Date"
 ).reset_index(drop=True)
 
-
-# ============================================================
-# 6. MATRIZES
-# ============================================================
-
-X_base = dados[
-    FEATURES_BASE
-].copy()
-
-X_base = X_base.replace(
-    [np.inf, -np.inf],
-    np.nan
-)
-
-X_base = X_base.fillna(0)
-
-y = dados["Res"].astype(str).values
-
-gols_casa = dados["HG"].astype(float).values
-gols_fora = dados["AG"].astype(float).values
-
-
-# ============================================================
-# 7. DIVISÃO CRONOLÓGICA
-# ============================================================
-
-n = len(dados)
-
-limite_treino = int(n * 0.60)
-limite_validacao = int(n * 0.80)
-
-X_train = X_base.iloc[:limite_treino]
-X_val = X_base.iloc[
-    limite_treino:limite_validacao
-]
-X_test = X_base.iloc[
-    limite_validacao:
-]
-
-y_train = y[:limite_treino]
-y_val = y[
-    limite_treino:limite_validacao
-]
-y_test = y[limite_validacao:]
-
-gols_casa_train = gols_casa[:limite_treino]
-gols_fora_train = gols_fora[:limite_treino]
-
-gols_casa_val = gols_casa[
-    limite_treino:limite_validacao
-]
-gols_fora_val = gols_fora[
-    limite_treino:limite_validacao
-]
-
-gols_casa_test = gols_casa[
-    limite_validacao:
-]
-gols_fora_test = gols_fora[
-    limite_validacao:
-]
-
-print("\nDivisão dos dados:")
-
 print(
-    f"Treino:     {len(y_train)} partidas"
+    f"Partidas processadas: {len(df)}"
 )
 
 print(
-    f"Validação:  {len(y_val)} partidas"
+    f"Características base: {len(FEATURES)}"
+)
+
+
+# ============================================================
+# DIVISÃO CRONOLÓGICA
+# ============================================================
+
+n = len(df)
+
+train_end = int(n * 0.60)
+val_end = int(n * 0.80)
+
+df_train = df.iloc[:train_end]
+df_val = df.iloc[train_end:val_end]
+df_test = df.iloc[val_end:]
+
+print(
+    f"Treino: {len(df_train)}"
 )
 
 print(
-    f"Teste:      {len(y_test)} partidas"
+    f"Validação: {len(df_val)}"
+)
+
+print(
+    f"Teste: {len(df_test)}"
 )
 
 
 # ============================================================
-# 8. POISSON
+# xG
 # ============================================================
 
-def poisson_probabilidades(
-    lambda_home,
-    lambda_away,
-    max_goals=8
+def calcular_xg(linha):
+
+    # --------------------------------------------------------
+    # TIME DA CASA
+    # --------------------------------------------------------
+
+    home_geral = (
+        linha["Home_Gols_Media"]
+        +
+        linha["Away_Gols_Sofridos_Media"]
+    ) / 2
+
+    home_casa = (
+        linha["Home_Gols_Casa_Media"]
+        +
+        linha["Away_Gols_Fora_Media"]
+    ) / 2
+
+    expected_home = (
+        0.60 * home_geral
+        +
+        0.40 * home_casa
+    )
+
+    # --------------------------------------------------------
+    # TIME VISITANTE
+    # --------------------------------------------------------
+
+    away_geral = (
+        linha["Away_Gols_Media"]
+        +
+        linha["Home_Gols_Sofridos_Media"]
+    ) / 2
+
+    away_fora = (
+        linha["Away_Gols_Fora_Media"]
+        +
+        linha["Home_Gols_Sofridos_Casa_Media"]
+    ) / 2
+
+    expected_away = (
+        0.60 * away_geral
+        +
+        0.40 * away_fora
+    )
+
+    # Segurança
+    expected_home = np.clip(
+        expected_home,
+        0.15,
+        4.50
+    )
+
+    expected_away = np.clip(
+        expected_away,
+        0.15,
+        4.50
+    )
+
+    return expected_home, expected_away
+
+
+# ============================================================
+# POISSON
+# ============================================================
+
+def calcular_poisson(
+    expected_home,
+    expected_away
 ):
 
-    resultados = []
+    prob_home = 0.0
+    prob_draw = 0.0
+    prob_away = 0.0
 
-    for lh, la in zip(
-        lambda_home,
-        lambda_away
-    ):
+    for gols_home in range(11):
 
-        probs_home = np.array([
-            exp(-lh)
-            * (lh ** g)
-            / factorial(g)
+        for gols_away in range(11):
 
-            for g in range(
-                max_goals + 1
+            prob = (
+                poisson.pmf(
+                    gols_home,
+                    expected_home
+                )
+                *
+                poisson.pmf(
+                    gols_away,
+                    expected_away
+                )
             )
-        ])
 
-        probs_away = np.array([
-            exp(-la)
-            * (la ** g)
-            / factorial(g)
+            if gols_home > gols_away:
 
-            for g in range(
-                max_goals + 1
-            )
-        ])
+                prob_home += prob
 
-        matriz = np.outer(
-            probs_home,
-            probs_away
-        )
+            elif gols_home == gols_away:
 
-        p_home = np.tril(
-            matriz,
-            -1
-        ).sum()
+                prob_draw += prob
 
-        p_draw = np.trace(
-            matriz
-        )
+            else:
 
-        p_away = np.triu(
-            matriz,
-            1
-        ).sum()
+                prob_away += prob
 
-        total = (
-            p_home
-            + p_draw
-            + p_away
-        )
-
-        resultados.append([
-            p_home / total,
-            p_draw / total,
-            p_away / total
-        ])
-
-    return np.array(resultados)
-
-
-# ============================================================
-# 9. MODELOS DE GOLS
-# ============================================================
-
-print("\nTREINANDO MODELOS DE GOLS")
-
-modelo_gols_casa = make_pipeline(
-    StandardScaler(),
-    PoissonRegressor(
-        alpha=0.5,
-        max_iter=1000
+    total = (
+        prob_home
+        +
+        prob_draw
+        +
+        prob_away
     )
-)
 
-modelo_gols_fora = make_pipeline(
-    StandardScaler(),
-    PoissonRegressor(
-        alpha=0.5,
-        max_iter=1000
+    return (
+        prob_home / total,
+        prob_draw / total,
+        prob_away / total
     )
-)
-
-modelo_gols_casa.fit(
-    X_train,
-    gols_casa_train
-)
-
-modelo_gols_fora.fit(
-    X_train,
-    gols_fora_train
-)
 
 
 # ============================================================
-# 10. GOLS ESPERADOS
+# PROBABILIDADES BASE
 # ============================================================
 
-def calcular_xg(
-    modelo_home,
-    modelo_away,
-    X
+def calcular_probabilidades_xg(
+    expected_home,
+    expected_away
 ):
+    """
+    A diferença de xG controla a disputa.
 
-    xg_home = np.clip(
-        modelo_home.predict(X),
-        0.05,
-        5
-    )
+    xG praticamente iguais:
+        empate recebe maior força.
 
-    xg_away = np.clip(
-        modelo_away.predict(X),
-        0.05,
-        5
-    )
+    Diferença pequena:
+        empate continua forte,
+        mas o favorito começa a ganhar espaço.
 
-    return xg_home, xg_away
+    Diferença média:
+        favorito passa a dominar.
 
+    Diferença grande:
+        favorito recebe a maior parte da probabilidade.
 
-xg_home_train, xg_away_train = calcular_xg(
-    modelo_gols_casa,
-    modelo_gols_fora,
-    X_train
-)
-
-xg_home_val, xg_away_val = calcular_xg(
-    modelo_gols_casa,
-    modelo_gols_fora,
-    X_val
-)
-
-xg_home_test, xg_away_test = calcular_xg(
-    modelo_gols_casa,
-    modelo_gols_fora,
-    X_test
-)
-
-
-# ============================================================
-# 11. POISSON
-# ============================================================
-
-p_train = poisson_probabilidades(
-    xg_home_train,
-    xg_away_train
-)
-
-p_val = poisson_probabilidades(
-    xg_home_val,
-    xg_away_val
-)
-
-p_test = poisson_probabilidades(
-    xg_home_test,
-    xg_away_test
-)
-
-
-# ============================================================
-# 12. LÓGICA PRINCIPAL DA DIFERENÇA
-# ============================================================
-
-def probabilidades_pela_diferenca(
-    xg_home,
-    xg_away
-):
+    Não existem faixas ou decisões do tipo
+    "se diferença < 0.10".
+    """
 
     diferenca = (
-        xg_home - xg_away
+        expected_home
+        -
+        expected_away
     )
 
-    distancia = np.abs(
+    distancia = abs(
         diferenca
     )
 
-    # --------------------------------------------------------
-    # EMPATE COMEÇA FORTE
-    # --------------------------------------------------------
+    # ========================================================
+    # EMPATE
+    # ========================================================
     #
-    # Diferença = 0:
-    # empate = 60%
+    # Este é o ponto principal da nova versão.
     #
-    # Conforme a diferença aumenta,
-    # o empate perde espaço.
+    # Com diferença zero:
+    # aproximadamente 40%.
     #
+    # Depois cai de maneira contínua.
+    # ========================================================
 
-    prob_draw = (
-        0.60
-        * np.exp(
-            -1.20 * distancia
+    empate = (
+        0.20
+        +
+        0.20 *
+        np.exp(
+            -1.40 *
+            distancia
         )
     )
 
-    # O empate nunca é eliminado
-    # completamente.
-    prob_draw = np.maximum(
-        prob_draw,
-        0.15
-    )
-
-    # --------------------------------------------------------
-    # O QUE SOBROU VAI PARA CASA/FORA
-    # --------------------------------------------------------
+    # ========================================================
+    # RESTANTE PARA CASA/FORA
+    # ========================================================
 
     restante = (
-        1.0 - prob_draw
+        1.0
+        -
+        empate
     )
 
-    # Diferença positiva:
-    # mais probabilidade para casa.
-    #
-    # Diferença negativa:
-    # mais probabilidade para fora.
+    # ========================================================
+    # FAVORITISMO PELO xG
+    # ========================================================
 
-    vantagem_casa = (
-        1
+    intensidade = 2.4
+
+    vantagem = (
+        1.0
         /
         (
-            1
-            + np.exp(
-                -5 * diferenca
+            1.0
+            +
+            np.exp(
+                -intensidade *
+                diferenca
             )
         )
     )
 
     prob_home = (
         restante
-        * vantagem_casa
+        *
+        vantagem
     )
 
     prob_away = (
         restante
-        * (1 - vantagem_casa)
+        *
+        (
+            1.0
+            -
+            vantagem
+        )
     )
 
-    return np.column_stack([
+    # ========================================================
+    # MANDO DE CAMPO
+    # ========================================================
+
+    bonus_casa = 0.025
+
+    prob_home += bonus_casa
+    prob_away -= bonus_casa
+
+    prob_home = max(
         prob_home,
-        prob_draw,
-        prob_away
-    ])
-
-
-# ============================================================
-# 13. DESEMPENHO HISTÓRICO
-# ============================================================
-
-def probabilidades_historicas(
-    X
-):
-
-    home_geral = X[
-        "Home_Aproveitamento"
-    ].values
-
-    away_geral = X[
-        "Away_Aproveitamento"
-    ].values
-
-    home_casa = X[
-        "Home_Aproveitamento_Casa"
-    ].values
-
-    away_fora = X[
-        "Away_Aproveitamento_Fora"
-    ].values
-
-    # Mistura desempenho geral
-    # com desempenho específico.
-
-    forca_home = (
-        home_geral * 0.60
-        +
-        home_casa * 0.40
+        0.005
     )
 
-    forca_away = (
-        away_geral * 0.60
+    prob_away = max(
+        prob_away,
+        0.005
+    )
+
+    # ========================================================
+    # NORMALIZAÇÃO
+    # ========================================================
+
+    total = (
+        prob_home
         +
-        away_fora * 0.40
+        empate
+        +
+        prob_away
+    )
+
+    prob_home /= total
+    empate /= total
+    prob_away /= total
+
+    return (
+        prob_home,
+        empate,
+        prob_away
+    )
+
+
+# ============================================================
+# FORÇA HISTÓRICA
+# ============================================================
+
+def calcular_historico(linha):
+
+    home_strength = (
+        0.45 *
+        linha["Home_Aproveitamento_Casa"]
+
+        +
+
+        0.30 *
+        linha["Home_Aproveitamento"]
+
+        +
+
+        0.15 *
+        linha["Home_Gols_Media"]
+
+        -
+
+        0.10 *
+        linha["Home_Gols_Sofridos_Media"]
+    )
+
+    away_strength = (
+        0.45 *
+        linha["Away_Aproveitamento_Fora"]
+
+        +
+
+        0.30 *
+        linha["Away_Aproveitamento"]
+
+        +
+
+        0.15 *
+        linha["Away_Gols_Media"]
+
+        -
+
+        0.10 *
+        linha["Away_Gols_Sofridos_Media"]
     )
 
     diferenca = (
-        forca_home
-        - forca_away
+        home_strength
+        -
+        away_strength
     )
 
-    # Distribuição da força
-    vantagem_home = (
-        1
+    diferenca = np.clip(
+        diferenca,
+        -2.0,
+        2.0
+    )
+
+    vantagem = (
+        1.0
         /
         (
-            1
-            + np.exp(
-                -5 * diferenca
+            1.0
+            +
+            np.exp(
+                -3.0 *
+                diferenca
             )
         )
     )
 
-    # Taxa histórica aproximada
-    # de empates do campeonato.
-    prob_draw = 0.265
+    # Histórico de equilíbrio
+    empate = (
+        0.20
+        +
+        0.10 *
+        np.exp(
+            -1.5 *
+            abs(diferenca)
+        )
+    )
 
     restante = (
-        1 - prob_draw
+        1.0
+        -
+        empate
     )
 
-    prob_home = (
+    home = (
         restante
-        * vantagem_home
+        *
+        vantagem
     )
 
-    prob_away = (
+    away = (
         restante
-        * (1 - vantagem_home)
+        *
+        (
+            1.0
+            -
+            vantagem
+        )
     )
 
-    return np.column_stack([
-        prob_home,
-        np.full(len(X), prob_draw),
-        prob_away
-    ])
+    total = (
+        home
+        +
+        empate
+        +
+        away
+    )
+
+    return (
+        home / total,
+        empate / total,
+        away / total,
+        abs(diferenca)
+    )
 
 
 # ============================================================
-# 14. COMBINAÇÃO xG + HISTÓRICO
+# PREVISÃO
 # ============================================================
 
-def probabilidades_finais(
-    X,
-    xg_home,
-    xg_away
-):
+def prever_partida(linha):
 
-    probs_xg = probabilidades_pela_diferenca(
+    # --------------------------------------------------------
+    # xG
+    # --------------------------------------------------------
+
+    xg_home, xg_away = calcular_xg(
+        linha
+    )
+
+    # --------------------------------------------------------
+    # MODELO BASE
+    # --------------------------------------------------------
+
+    (
+        xg_home_prob,
+        xg_draw_prob,
+        xg_away_prob
+    ) = calcular_probabilidades_xg(
         xg_home,
         xg_away
     )
 
-    probs_hist = probabilidades_historicas(
-        X
+    # --------------------------------------------------------
+    # POISSON
+    # --------------------------------------------------------
+
+    (
+        poisson_home,
+        poisson_draw,
+        poisson_away
+    ) = calcular_poisson(
+        xg_home,
+        xg_away
     )
 
     # --------------------------------------------------------
-    # DIFERENÇA HISTÓRICA
+    # COMBINAÇÃO
     # --------------------------------------------------------
 
-    home_forca = (
-        X["Home_Aproveitamento"].values
-        * 0.60
+    peso_xg = 0.55
+    peso_poisson = 0.45
+
+    base_home = (
+        peso_xg *
+        xg_home_prob
+
         +
-        X["Home_Aproveitamento_Casa"].values
-        * 0.40
+
+        peso_poisson *
+        poisson_home
     )
 
-    away_forca = (
-        X["Away_Aproveitamento"].values
-        * 0.60
+    base_draw = (
+        peso_xg *
+        xg_draw_prob
+
         +
-        X["Away_Aproveitamento_Fora"].values
-        * 0.40
+
+        peso_poisson *
+        poisson_draw
     )
 
-    diferenca_historica = np.abs(
-        home_forca - away_forca
+    base_away = (
+        peso_xg *
+        xg_away_prob
+
+        +
+
+        peso_poisson *
+        poisson_away
     )
 
     # --------------------------------------------------------
-    # PESO DO HISTÓRICO
+    # HISTÓRICO
     # --------------------------------------------------------
-    #
-    # Histórico equilibrado:
-    # xG domina.
-    #
-    # Histórico muito diferente:
-    # histórico ganha força.
-    #
 
-    peso_historico = np.clip(
-        diferenca_historica / 0.30,
-        0,
-        1
+    (
+        hist_home,
+        hist_draw,
+        hist_away,
+        diferenca_historica
+    ) = calcular_historico(
+        linha
     )
 
-    peso_xg = (
-        1 - peso_historico
-    )
+    # --------------------------------------------------------
+    # PESO HISTÓRICO
+    # --------------------------------------------------------
 
-    probs = (
-        probs_xg
-        * peso_xg[:, None]
+    peso_historico = (
+        0.10
         +
-        probs_hist
-        * peso_historico[:, None]
-    )
-
-    # Normalização final
-    probs = (
-        probs
-        /
-        probs.sum(
-            axis=1,
-            keepdims=True
+        0.20 *
+        (
+            1.0
+            -
+            np.exp(
+                -2.0 *
+                diferenca_historica
+            )
         )
     )
 
-    return probs
+    peso_historico = np.clip(
+        peso_historico,
+        0.10,
+        0.30
+    )
+
+    peso_base = (
+        1.0
+        -
+        peso_historico
+    )
+
+    # --------------------------------------------------------
+    # RESULTADO FINAL
+    # --------------------------------------------------------
+
+    prob_home = (
+        peso_base *
+        base_home
+
+        +
+
+        peso_historico *
+        hist_home
+    )
+
+    prob_draw = (
+        peso_base *
+        base_draw
+
+        +
+
+        peso_historico *
+        hist_draw
+    )
+
+    prob_away = (
+        peso_base *
+        base_away
+
+        +
+
+        peso_historico *
+        hist_away
+    )
+
+    # --------------------------------------------------------
+    # NORMALIZAÇÃO
+    # --------------------------------------------------------
+
+    total = (
+        prob_home
+        +
+        prob_draw
+        +
+        prob_away
+    )
+
+    prob_home /= total
+    prob_draw /= total
+    prob_away /= total
+
+    return (
+        prob_home,
+        prob_draw,
+        prob_away,
+        xg_home,
+        xg_away,
+        diferenca_historica,
+        poisson_home,
+        poisson_draw,
+        poisson_away
+    )
 
 
 # ============================================================
-# 15. PROBABILIDADES DE VALIDAÇÃO
+# GERAR PREVISÕES
 # ============================================================
 
-probs_val = probabilidades_finais(
-    X_val,
-    xg_home_val,
-    xg_away_val
-)
+def gerar_previsoes(dados):
+
+    previsoes = []
+
+    for _, linha in dados.iterrows():
+
+        (
+            prob_home,
+            prob_draw,
+            prob_away,
+            _,
+            _,
+            _,
+            _,
+            _,
+            _
+        ) = prever_partida(
+            linha
+        )
+
+        probabilidades = {
+            "H": prob_home,
+            "D": prob_draw,
+            "A": prob_away
+        }
+
+        previsao = max(
+            probabilidades,
+            key=probabilidades.get
+        )
+
+        previsoes.append(
+            previsao
+        )
+
+    return np.array(
+        previsoes
+    )
 
 
 # ============================================================
-# 16. PREVISÃO
+# AVALIAÇÃO
 # ============================================================
 
-def fazer_previsao(
-    probabilidades
+def avaliar(
+    nome,
+    dados
 ):
 
-    classes = np.array([
+    real = dados["Res"].values
+
+    previsto = gerar_previsoes(
+        dados
+    )
+
+    acc = accuracy_score(
+        real,
+        previsto
+    )
+
+    precision = precision_score(
+        real,
+        previsto,
+        labels=["H", "D", "A"],
+        average="macro",
+        zero_division=0
+    )
+
+    recall = recall_score(
+        real,
+        previsto,
+        labels=["H", "D", "A"],
+        average="macro",
+        zero_division=0
+    )
+
+    f1 = f1_score(
+        real,
+        previsto,
+        labels=["H", "D", "A"],
+        average="macro",
+        zero_division=0
+    )
+
+    f1_draw = f1_score(
+        real,
+        previsto,
+        labels=["D"],
+        average="macro",
+        zero_division=0
+    )
+
+    print()
+    print("=" * 60)
+    print(nome)
+    print("=" * 60)
+
+    print(
+        f"Accuracy: {acc * 100:.2f}%"
+    )
+
+    print(
+        f"Precision: {precision * 100:.2f}%"
+    )
+
+    print(
+        f"Recall: {recall * 100:.2f}%"
+    )
+
+    print(
+        f"Macro F1: {f1 * 100:.2f}%"
+    )
+
+    print(
+        f"F1 Empate: {f1_draw * 100:.2f}%"
+    )
+
+    print()
+    print("Matriz de confusão:")
+
+    print(
+        confusion_matrix(
+            real,
+            previsto,
+            labels=["H", "D", "A"]
+        )
+    )
+
+    print()
+
+    print(
+        classification_report(
+            real,
+            previsto,
+            labels=["H", "D", "A"],
+            target_names=[
+                "Casa",
+                "Empate",
+                "Fora"
+            ],
+            zero_division=0
+        )
+    )
+
+    print(
+        "Distribuição das previsões:"
+    )
+
+    contagem = pd.Series(
+        previsto
+    ).value_counts()
+
+    for resultado in [
         "H",
         "D",
         "A"
-    ])
-
-    return classes[
-        np.argmax(
-            probabilidades,
-            axis=1
-        )
-    ]
-
-
-pred_val = fazer_previsao(
-    probs_val
-)
-
-
-# ============================================================
-# 17. MÉTRICAS VALIDAÇÃO
-# ============================================================
-
-print(
-    "\nRESULTADO - VALIDAÇÃO"
-)
-
-print(
-    f"Accuracy:   "
-    f"{accuracy_score(y_val, pred_val):.2%}"
-)
-
-print(
-    f"Precision:  "
-    f"{precision_score(y_val, pred_val, labels=['H','D','A'], average='macro', zero_division=0):.2%}"
-)
-
-print(
-    f"Recall:     "
-    f"{recall_score(y_val, pred_val, labels=['H','D','A'], average='macro', zero_division=0):.2%}"
-)
-
-print(
-    f"Macro F1:   "
-    f"{f1_score(y_val, pred_val, labels=['H','D','A'], average='macro', zero_division=0):.2%}"
-)
-
-print(
-    f"F1 Empate:  "
-    f"{f1_score(y_val, pred_val, labels=['D'], average='macro', zero_division=0):.2%}"
-)
-
-
-# ============================================================
-# 18. DISTRIBUIÇÃO VALIDAÇÃO
-# ============================================================
-
-print(
-    "\nDISTRIBUIÇÃO DAS PREVISÕES - VALIDAÇÃO"
-)
-
-print(
-    f"Casa: "
-    f"{np.sum(pred_val == 'H')} "
-    f"({np.mean(pred_val == 'H'):.2%})"
-)
-
-print(
-    f"Empate: "
-    f"{np.sum(pred_val == 'D')} "
-    f"({np.mean(pred_val == 'D'):.2%})"
-)
-
-print(
-    f"Fora: "
-    f"{np.sum(pred_val == 'A')} "
-    f"({np.mean(pred_val == 'A'):.2%})"
-)
-
-
-# ============================================================
-# 19. MATRIZ VALIDAÇÃO
-# ============================================================
-
-print(
-    "\nMATRIZ DE CONFUSÃO - VALIDAÇÃO"
-)
-
-print(
-    confusion_matrix(
-        y_val,
-        pred_val,
-        labels=[
-            "H",
-            "D",
-            "A"
-        ]
-    )
-)
-
-
-# ============================================================
-# 20. RETREINAMENTO FINAL
-# ============================================================
-
-print(
-    "\nRETREINANDO MODELOS DE GOLS "
-    "COM TREINO + VALIDAÇÃO"
-)
-
-X_trainval = pd.concat([
-    X_train,
-    X_val
-])
-
-gols_casa_trainval = np.concatenate([
-    gols_casa_train,
-    gols_casa_val
-])
-
-gols_fora_trainval = np.concatenate([
-    gols_fora_train,
-    gols_fora_val
-])
-
-
-modelo_gols_casa_final = make_pipeline(
-    StandardScaler(),
-    PoissonRegressor(
-        alpha=0.5,
-        max_iter=1000
-    )
-)
-
-modelo_gols_fora_final = make_pipeline(
-    StandardScaler(),
-    PoissonRegressor(
-        alpha=0.5,
-        max_iter=1000
-    )
-)
-
-modelo_gols_casa_final.fit(
-    X_trainval,
-    gols_casa_trainval
-)
-
-modelo_gols_fora_final.fit(
-    X_trainval,
-    gols_fora_trainval
-)
-
-
-# ============================================================
-# 21. xG FINAL
-# ============================================================
-
-xg_home_test_final, xg_away_test_final = (
-    calcular_xg(
-        modelo_gols_casa_final,
-        modelo_gols_fora_final,
-        X_test
-    )
-)
-
-
-# ============================================================
-# 22. POISSON FINAL
-# ============================================================
-
-p_test_final = poisson_probabilidades(
-    xg_home_test_final,
-    xg_away_test_final
-)
-
-
-# ============================================================
-# 23. PROBABILIDADES FINAIS
-# ============================================================
-
-probs_test = probabilidades_finais(
-    X_test,
-    xg_home_test_final,
-    xg_away_test_final
-)
-
-pred_test = fazer_previsao(
-    probs_test
-)
-
-
-# ============================================================
-# 24. RESULTADO FINAL
-# ============================================================
-
-print(
-    "\nRESULTADO FINAL - TESTE"
-)
-
-print(
-    f"Accuracy:   "
-    f"{accuracy_score(y_test, pred_test):.2%}"
-)
-
-print(
-    f"Precision:  "
-    f"{precision_score(y_test, pred_test, labels=['H','D','A'], average='macro', zero_division=0):.2%}"
-)
-
-print(
-    f"Recall:     "
-    f"{recall_score(y_test, pred_test, labels=['H','D','A'], average='macro', zero_division=0):.2%}"
-)
-
-print(
-    f"Macro F1:   "
-    f"{f1_score(y_test, pred_test, labels=['H','D','A'], average='macro', zero_division=0):.2%}"
-)
-
-print(
-    f"F1 Empate:  "
-    f"{f1_score(y_test, pred_test, labels=['D'], average='macro', zero_division=0):.2%}"
-)
-
-
-# ============================================================
-# 25. MATRIZ DE CONFUSÃO
-# ============================================================
-
-print(
-    "\nMATRIZ DE CONFUSÃO"
-)
-
-print(
-    confusion_matrix(
-        y_test,
-        pred_test,
-        labels=[
-            "H",
-            "D",
-            "A"
-        ]
-    )
-)
-
-
-# ============================================================
-# 26. CLASSIFICATION REPORT
-# ============================================================
-
-print(
-    "\nCLASSIFICATION REPORT"
-)
-
-print(
-    classification_report(
-        y_test,
-        pred_test,
-        labels=[
-            "H",
-            "D",
-            "A"
-        ],
-        target_names=[
-            "Casa",
-            "Empate",
-            "Fora"
-        ],
-        zero_division=0
-    )
-)
-
-
-# ============================================================
-# 27. DISTRIBUIÇÃO TESTE
-# ============================================================
-
-print(
-    "\nDISTRIBUIÇÃO TESTE"
-)
-
-print(
-    f"Casa: "
-    f"{np.sum(pred_test == 'H')} "
-    f"({np.mean(pred_test == 'H'):.2%})"
-)
-
-print(
-    f"Empate: "
-    f"{np.sum(pred_test == 'D')} "
-    f"({np.mean(pred_test == 'D'):.2%})"
-)
-
-print(
-    f"Fora: "
-    f"{np.sum(pred_test == 'A')} "
-    f"({np.mean(pred_test == 'A'):.2%})"
-)
-
-
-# ============================================================
-# 28. MODELO DE GOLS
-# ============================================================
-
-print(
-    "\nMODELO DE GOLS"
-)
-
-print(
-    f"Média prevista home: "
-    f"{np.mean(xg_home_test_final):.2f}"
-)
-
-print(
-    f"Média prevista away: "
-    f"{np.mean(xg_away_test_final):.2f}"
-)
-
-
-# ============================================================
-# 29. PLACAR MAIS PROVÁVEL
-# ============================================================
-
-def placar_mais_provavel(
-    lambda_home,
-    lambda_away,
-    max_goals=8
-):
-
-    melhor_prob = -1
-    melhor_placar = (0, 0)
-
-    for h in range(
-        max_goals + 1
-    ):
-
-        ph = (
-            exp(-lambda_home)
-            * (lambda_home ** h)
-            / factorial(h)
+    ]:
+
+        quantidade = contagem.get(
+            resultado,
+            0
         )
 
-        for a in range(
-            max_goals + 1
-        ):
+        percentual = (
+            quantidade
+            /
+            len(previsto)
+            *
+            100
+        )
 
-            pa = (
-                exp(-lambda_away)
-                * (lambda_away ** a)
-                / factorial(a)
-            )
+        print(
+            f"{resultado}: "
+            f"{quantidade} "
+            f"({percentual:.2f}%)"
+        )
 
-            prob = ph * pa
-
-            if prob > melhor_prob:
-
-                melhor_prob = prob
-
-                melhor_placar = (
-                    h,
-                    a
-                )
-
-    return melhor_placar
+    return previsto
 
 
 # ============================================================
-# 30. EXEMPLOS
+# VALIDAÇÃO
 # ============================================================
 
-print(
-    "\nEXEMPLOS DE PREVISÃO"
+prev_val = avaliar(
+    "VALIDAÇÃO",
+    df_val
 )
 
-indices_exemplos = np.linspace(
-    0,
-    len(X_test) - 1,
-    min(10, len(X_test)),
-    dtype=int
+
+# ============================================================
+# TESTE
+# ============================================================
+
+prev_test = avaliar(
+    "TESTE",
+    df_test
 )
 
-for idx in indices_exemplos:
 
-    linha = dados.iloc[
-        limite_validacao + idx
-    ]
+# ============================================================
+# xG MÉDIO DO TESTE
+# ============================================================
 
-    probs = probs_test[idx]
+xg_home_list = []
+xg_away_list = []
 
-    xg_h = xg_home_test_final[idx]
-    xg_a = xg_away_test_final[idx]
+for _, linha in df_test.iterrows():
 
-    diferenca = (
-        xg_h - xg_a
+    xg_h, xg_a = calcular_xg(
+        linha
     )
 
-    placar = placar_mais_provavel(
-        xg_h,
+    xg_home_list.append(
+        xg_h
+    )
+
+    xg_away_list.append(
         xg_a
     )
 
+print()
+print("=" * 60)
+print("xG MÉDIO NO TESTE")
+print("=" * 60)
+
+print(
+    f"Casa: "
+    f"{np.mean(xg_home_list):.2f}"
+)
+
+print(
+    f"Fora: "
+    f"{np.mean(xg_away_list):.2f}"
+)
+
+
+# ============================================================
+# EXEMPLOS
+# ============================================================
+
+print()
+print("=" * 60)
+print("EXEMPLOS DE PREVISÃO")
+print("=" * 60)
+
+for _, linha in df_test.tail(10).iterrows():
+
+    (
+        prob_home,
+        prob_draw,
+        prob_away,
+        xg_home,
+        xg_away,
+        dif_hist,
+        poisson_home,
+        poisson_draw,
+        poisson_away
+    ) = prever_partida(
+        linha
+    )
+
+    probabilidades = {
+        "H": prob_home,
+        "D": prob_draw,
+        "A": prob_away
+    }
+
+    resultado = max(
+        probabilidades,
+        key=probabilidades.get
+    )
+
+    print()
     print(
-        "\n"
-        + str(linha["Home"])
-        + " x "
-        + str(linha["Away"])
+        f"{linha['Home']} x "
+        f"{linha['Away']}"
     )
 
     print(
-        f"Casa: "
-        f"{probs[0] * 100:.2f}%"
+        f"Previsão: {resultado}"
     )
 
     print(
-        f"Empate: "
-        f"{probs[1] * 100:.2f}%"
+        f"Final: "
+        f"Casa {prob_home * 100:.2f}% | "
+        f"Empate {prob_draw * 100:.2f}% | "
+        f"Fora {prob_away * 100:.2f}%"
     )
 
     print(
-        f"Fora: "
-        f"{probs[2] * 100:.2f}%"
-    )
-
-    print(
-        f"Gols esperados: "
-        f"{xg_h:.2f} x "
-        f"{xg_a:.2f}"
-    )
-
-    print(
-        f"Diferença xG: "
-        f"{diferenca:+.2f}"
+        f"xG: "
+        f"{xg_home:.2f} x "
+        f"{xg_away:.2f} "
+        f"(diferença "
+        f"{xg_home - xg_away:+.2f})"
     )
 
     print(
         f"Poisson: "
-        f"H {p_test_final[idx, 0] * 100:.2f}% | "
-        f"D {p_test_final[idx, 1] * 100:.2f}% | "
-        f"A {p_test_final[idx, 2] * 100:.2f}%"
+        f"{poisson_home * 100:.2f}% / "
+        f"{poisson_draw * 100:.2f}% / "
+        f"{poisson_away * 100:.2f}%"
     )
 
     print(
-        f"Placar mais provável: "
-        f"{placar[0]}x{placar[1]}"
+        f"Diferença histórica: "
+        f"{dif_hist:.3f}"
     )
 
 
 # ============================================================
-# 31. ANÁLISE DA DIFERENÇA
+# ANÁLISE DOS EMPATES POR xG
 # ============================================================
 
-print(
-    "\nANÁLISE DA RELAÇÃO ENTRE "
-    "DIFERENÇA DE xG E EMPATES"
-)
-
-diferencas = np.abs(
-    xg_home_test_final
-    - xg_away_test_final
-)
+print()
+print("=" * 60)
+print("EMPATES POR DIFERENÇA DE xG")
+print("=" * 60)
 
 faixas = [
     (0.00, 0.05),
@@ -1148,59 +1005,92 @@ faixas = [
     (0.20, 0.30),
     (0.30, 0.50),
     (0.50, 1.00),
-    (1.00, np.inf)
+    (1.00, 99.0)
 ]
 
-for inicio, fim in faixas:
+for minimo, maximo in faixas:
 
-    if np.isinf(fim):
+    jogos = 0
+    empates_reais = 0
+    empates_previstos = 0
 
-        mask = (
-            diferencas >= inicio
+    for _, linha in df_test.iterrows():
+
+        xg_h, xg_a = calcular_xg(
+            linha
         )
 
-    else:
-
-        mask = (
-            (diferencas >= inicio)
-            &
-            (diferencas < fim)
+        diferenca = abs(
+            xg_h - xg_a
         )
 
-    quantidade = np.sum(mask)
+        if (
+            minimo <= diferenca
+            <
+            maximo
+        ):
 
-    if quantidade == 0:
+            jogos += 1
+
+            if linha["Res"] == "D":
+                empates_reais += 1
+
+            (
+                prob_h,
+                prob_d,
+                prob_a,
+                _,
+                _,
+                _,
+                _,
+                _,
+                _
+            ) = prever_partida(
+                linha
+            )
+
+            previsao = max(
+                {
+                    "H": prob_h,
+                    "D": prob_d,
+                    "A": prob_a
+                },
+                key={
+                    "H": prob_h,
+                    "D": prob_d,
+                    "A": prob_a
+                }.get
+            )
+
+            if previsao == "D":
+                empates_previstos += 1
+
+    if jogos == 0:
         continue
 
-    reais = np.sum(
-        y_test[mask] == "D"
+    percentual_real = (
+        empates_reais
+        /
+        jogos
+        *
+        100
     )
 
-    previstos = np.sum(
-        pred_test[mask] == "D"
+    percentual_previsto = (
+        empates_previstos
+        /
+        jogos
+        *
+        100
     )
-
-    if np.isinf(fim):
-
-        nome = f"{inicio:.2f}–+"
-
-    else:
-
-        nome = (
-            f"{inicio:.2f}–{fim:.2f}"
-        )
 
     print(
-        f"{nome}: "
-        f"{quantidade} jogos | "
-        f"empates reais: {reais} "
-        f"({reais / quantidade:.2%}) | "
-        f"empates previstos: {previstos} "
-        f"({previstos / quantidade:.2%})"
+        f"{minimo:.2f}-{maximo:.2f}: "
+        f"{jogos} jogos | "
+        f"Empates reais: "
+        f"{empates_reais} "
+        f"({percentual_real:.2f}%) | "
+        f"Empates previstos: "
+        f"{empates_previstos} "
+        f"({percentual_previsto:.2f}%)"
     )
-
-
-print(
-    "\nMODELO FINAL CONCLUÍDO."
-)
-
