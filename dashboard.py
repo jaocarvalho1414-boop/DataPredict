@@ -781,10 +781,10 @@ def perfil_time(time):
 # ABAS
 # ============================================================
 
-aba1, aba2, aba3 = st.tabs([
-    "📊 Visão geral",
+aba_previsao, aba_analise, aba_visao_geral = st.tabs([
     "🔮 Previsão",
-    "📈 Análise"
+    "📈 Análise",
+    "📊 Visão geral"
 ])
 
 
@@ -792,7 +792,7 @@ aba1, aba2, aba3 = st.tabs([
 # ABA 1 — VISÃO GERAL
 # ============================================================
 
-with aba1:
+with aba_visao_geral:
 
     st.header("Visão geral")
 
@@ -895,7 +895,7 @@ with aba1:
 # ABA 2 — PREVISÃO
 # ============================================================
 
-with aba2:
+with aba_previsao:
 
     st.header("🔮 Previsão de partida")
 
@@ -903,12 +903,37 @@ with aba2:
         "Escolha os times para estimar xG e probabilidades."
     )
 
-    times = sorted(
-        set(dados["Home"])
-        |
-        set(dados["Away"])
-    )
+     
 
+    TIMES_SERIE_A_ATUAIS = [
+        "Athletico-PR",
+        "Atletico-MG",
+        "Bahia",
+        "Botafogo RJ",
+        "Chapecoense-SC",
+        "Corinthians",
+        "Coritiba",
+        "Cruzeiro",
+        "Flamengo RJ",
+        "Fluminense",
+        "Gremio",
+        "Internacional",
+        "Mirassol",
+        "Palmeiras",
+        "Bragantino",
+        "Remo",
+        "Santos",
+        "Sao Paulo",
+        "Vasco",
+        "Vitoria"
+    ]
+
+    times = [
+        time
+        for time in TIMES_SERIE_A_ATUAIS
+        if time in dados["Home"].values
+        or time in dados["Away"].values
+    ]
     col1, col2 = st.columns(2)
 
     with col1:
@@ -1020,23 +1045,52 @@ with aba2:
 
         previsao = nomes[indice]
 
+        # Resultado principal
         if previsao == "Casa":
-
+            resultado_texto = f"vitória do {time_casa}"
             st.success(
-                f"🏆 Previsão: **vitória do {time_casa}**"
+                f"🏆 Resultado mais provável: **{resultado_texto}**"
             )
-
         elif previsao == "Fora":
-
+            resultado_texto = f"vitória do {time_fora}"
             st.success(
-                f"🏆 Previsão: **vitória do {time_fora}**"
+                f"🏆 Resultado mais provável: **{resultado_texto}**"
             )
-
         else:
-
+            resultado_texto = "empate"
             st.info(
-                "🤝 Previsão: **empate**"
+                "🤝 Resultado mais provável: **empate**"
             )
+
+        # Leitura rápida do confronto
+        diferenca_xg = xg_home - xg_away
+
+        if abs(diferenca_xg) < 0.10:
+            leitura = "O confronto aparece bastante equilibrado pelo xG."
+        elif diferenca_xg > 0:
+            leitura = (
+                f"O xG indica vantagem ofensiva para **{time_casa}**, "
+                "o que aumenta sua probabilidade de vitória."
+            )
+        else:
+            leitura = (
+                f"O xG indica vantagem ofensiva para **{time_fora}**, "
+                "o que aumenta sua probabilidade de vitória."
+            )
+
+        st.markdown(
+            f"""
+            <div class="info-box">
+                <strong>Leitura do modelo</strong><br>
+                {leitura}<br>
+                <span style="opacity:0.75">
+                    A previsão combina a expectativa de gols (xG)
+                    com a distribuição de resultados derivada dela.
+                </span>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
         st.subheader(
             "Probabilidades"
@@ -1065,12 +1119,16 @@ with aba2:
                 f"{probabilidades[2]:.1%}"
             )
 
+        # Barras visuais de probabilidade
+        for nome, prob in zip(nomes, probabilidades):
+            st.progress(
+                float(prob),
+                text=f"{nome}: {prob:.1%}"
+            )
+
         grafico = pd.DataFrame({
-
             "Resultado": nomes,
-
-            "Probabilidade":
-                probabilidades
+            "Probabilidade": probabilidades
         })
 
         st.bar_chart(
@@ -1158,6 +1216,11 @@ with aba2:
             hide_index=True
         )
 
+        st.caption(
+            "As probabilidades e os placares são estimativas do modelo "
+            "e não representam garantia do resultado real."
+        )
+
         st.divider()
 
         st.subheader(
@@ -1243,7 +1306,7 @@ with aba2:
 # ABA 3 — ANÁLISE
 # ============================================================
 
-with aba3:
+with aba_analise:
 
     st.header("📈 Análise dos dados")
 
