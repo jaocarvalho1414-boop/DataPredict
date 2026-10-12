@@ -1,26 +1,34 @@
-name: Atualizar estatisticas
+name: Atualizar banco
 
 on:
   schedule:
-    - cron: "17 13 * * *"
-  workflow_dispatch:
+    - cron: "0 9 * * *"   # todo dia às 9h UTC (6h em Brasília)
+  workflow_dispatch:       # permite rodar manualmente também
 
 permissions:
-  contents: read
+  contents: write
 
 jobs:
   atualizar:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Baixar repositorio
-        uses: actions/checkout@v4
+      - uses: actions/checkout@v4
 
-      - name: Configurar Python
-        uses: actions/setup-python@v5
+      - uses: actions/setup-python@v5
         with:
-          python-version: "3.12"
+          python-version: "3.11"
 
-      - name: Testar automacao
+      - run: pip install -r requirements.txt
+
+      - name: Atualizar e processar
         run: |
-          python -c "print('DataPredict: automacao executada com sucesso!')"
+          python -c "from atualizar import atualizar_banco; print(atualizar_banco())"
+          python main.py
+
+      - name: Commit se houve mudança
+        run: |
+          git config user.name "github-actions"
+          git config user.email "actions@github.com"
+          git add dataset/
+          git diff --staged --quiet || git commit -m "Atualiza banco de dados"
+          git push
