@@ -1,6 +1,8 @@
 import streamlit as st
 import pandas as pd
 import numpy as np
+import requests
+from html import escape
 
 from sklearn.linear_model import PoissonRegressor
 from sklearn.preprocessing import StandardScaler
@@ -22,6 +24,79 @@ st.set_page_config(
 
 ARQUIVO_PROCESSADO = "dataset/BRA_processado.csv"
 ARQUIVO_ORIGINAL = "dataset/BRA.csv"
+
+# Páginas usadas para buscar os escudos na Wikipédia em português.
+# Se a imagem não estiver disponível, o dashboard mostra as iniciais do clube.
+PAGINAS_ESCUDOS = {
+    "Athletico-PR": "Club Athletico Paranaense",
+    "Atletico-MG": "Clube Atlético Mineiro",
+    "Bahia": "Esporte Clube Bahia",
+    "Botafogo RJ": "Botafogo de Futebol e Regatas",
+    "Chapecoense-SC": "Associação Chapecoense de Futebol",
+    "Corinthians": "Sport Club Corinthians Paulista",
+    "Coritiba": "Coritiba Foot Ball Club",
+    "Cruzeiro": "Cruzeiro Esporte Clube",
+    "Flamengo RJ": "Clube de Regatas do Flamengo",
+    "Fluminense": "Fluminense Football Club",
+    "Gremio": "Grêmio Foot-Ball Porto Alegrense",
+    "Internacional": "Sport Club Internacional",
+    "Mirassol": "Mirassol Futebol Clube",
+    "Palmeiras": "Sociedade Esportiva Palmeiras",
+    "Bragantino": "Red Bull Bragantino",
+    "Remo": "Clube do Remo",
+    "Santos": "Santos Futebol Clube",
+    "Sao Paulo": "São Paulo Futebol Clube",
+    "Vasco": "Club de Regatas Vasco da Gama",
+    "Vitoria": "Esporte Clube Vitória",
+}
+
+
+@st.cache_data(ttl=604800, show_spinner=False)
+def buscar_escudo(time):
+    """Busca e guarda em cache a miniatura do escudo na Wikipédia."""
+    pagina = PAGINAS_ESCUDOS.get(time)
+    if not pagina:
+        return None
+
+    try:
+        resposta = requests.get(
+            "https://pt.wikipedia.org/w/api.php",
+            params={
+                "action": "query",
+                "format": "json",
+                "prop": "pageimages",
+                "piprop": "thumbnail",
+                "pithumbsize": 300,
+                "titles": pagina,
+            },
+            headers={"User-Agent": "DataPredictDashboard/1.0 (club crest display)"},
+            timeout=5,
+        )
+        resposta.raise_for_status()
+        paginas = resposta.json().get("query", {}).get("pages", {})
+        for item in paginas.values():
+            miniatura = item.get("thumbnail", {}).get("source")
+            if miniatura:
+                return miniatura
+    except (requests.RequestException, ValueError, TypeError):
+        pass
+
+    return None
+
+
+def html_escudo(time):
+    """Gera o HTML do escudo; usa iniciais como alternativa se falhar."""
+    url = buscar_escudo(time)
+    nome_seguro = escape(time)
+
+    if url:
+        return (
+            f'<img class="team-crest" src="{escape(url, quote=True)}" '
+            f'alt="Escudo do {nome_seguro}" loading="lazy">'
+        )
+
+    iniciais = "".join(parte[0] for parte in time.replace("-", " ").split() if parte)[:3]
+    return f'<div class="team-fallback" aria-label="{nome_seguro}">{escape(iniciais.upper())}</div>'
 
 
 # ============================================================
@@ -69,14 +144,102 @@ st.markdown("""
         margin: 10px 0 20px 0;
     }
 
-    .match-teams {
-        font-size: 27px;
+    .match-teams-row {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        gap: clamp(14px, 4vw, 48px);
+        flex-wrap: wrap;
+    }
+
+    .team-side {
+        display: flex;
+        flex: 1 1 180px;
+        min-width: 130px;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        gap: 12px;
+    }
+
+    .team-crest {
+        width: 104px;
+        height: 104px;
+        object-fit: contain;
+        filter: drop-shadow(0 4px 8px rgba(0,0,0,.12));
+    }
+
+    .team-fallback {
+        width: 104px;
+        height: 104px;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        border-radius: 50%;
+        border: 1px solid rgba(128,128,128,.35);
+        background: rgba(128,128,128,.10);
+        font-size: 25px;
         font-weight: 800;
+        color: #888;
+    }
+
+    .match-team-name {
+        font-size: clamp(17px, 2vw, 24px);
+        line-height: 1.2;
+        font-weight: 800;
+        overflow-wrap: anywhere;
+    }
+
+    .prediction-score-divider {
+        width: 100%;
+        height: 1px;
+        background: rgba(128,128,128,.22);
+        margin: 24px 0 18px 0;
+    }
+
+    .prediction-score-label {
+        font-size: 12px;
+        font-weight: 800;
+        letter-spacing: 1.6px;
+        color: #888;
+        text-transform: uppercase;
+    }
+
+    .prediction-score {
+        font-size: clamp(34px, 5vw, 48px);
+        font-weight: 900;
+        letter-spacing: 1px;
+        line-height: 1.15;
+        margin: 8px 0;
+    }
+
+    .prediction-outcome {
+        font-size: 17px;
+        font-weight: 700;
+        margin-top: 6px;
+    }
+
+    .prediction-disclaimer {
+        font-size: 12px;
+        color: #888;
+        margin-top: 10px;
     }
 
     .vs {
         color: #888;
-        padding: 0 10px;
+        font-size: 23px;
+        font-weight: 700;
+        padding: 0 4px;
+    }
+
+    @media (max-width: 520px) {
+        .team-crest, .team-fallback {
+            width: 76px;
+            height: 76px;
+        }
+        .team-side {
+            min-width: 100px;
+        }
     }
 
     .prediction {
@@ -707,6 +870,49 @@ def top_placares(
     return resultados[:quantidade]
 
 
+def placar_compativel_com_previsao(
+    xg_home,
+    xg_away,
+    previsao
+):
+    """
+    Retorna o placar individualmente mais provável que combine
+    com o resultado 1X2 apontado pelo modelo.
+    """
+    resultados = []
+
+    for gols_h in range(9):
+        prob_h = (
+            exp(-xg_home)
+            * xg_home ** gols_h
+            / factorial(gols_h)
+        )
+
+        for gols_a in range(9):
+            if previsao == "Casa" and gols_h <= gols_a:
+                continue
+            if previsao == "Empate" and gols_h != gols_a:
+                continue
+            if previsao == "Fora" and gols_h >= gols_a:
+                continue
+
+            prob_a = (
+                exp(-xg_away)
+                * xg_away ** gols_a
+                / factorial(gols_a)
+            )
+
+            resultados.append(
+                (gols_h, gols_a, prob_h * prob_a)
+            )
+
+    if not resultados:
+        return (0, 0)
+
+    melhor = max(resultados, key=lambda item: item[2])
+    return melhor[0], melhor[1]
+
+
 def perfil_time(time):
 
     jogos = dados[
@@ -1009,27 +1215,7 @@ with aba_previsao:
             )
         )
 
-        placar = (
-            placar_mais_provavel(
-                xg_home,
-                xg_away
-            )
-        )
-
         st.divider()
-
-        st.markdown(
-            f"""
-            <div class="match-card">
-                <div class="match-teams">
-                    {time_casa}
-                    <span class="vs">×</span>
-                    {time_fora}
-                </div>
-            </div>
-            """,
-            unsafe_allow_html=True
-        )
 
         nomes = [
             "Casa",
@@ -1045,22 +1231,48 @@ with aba_previsao:
 
         previsao = nomes[indice]
 
-        # Resultado principal
+        # Escolhe o placar mais provável que combine com a tendência 1X2.
+        placar = placar_compativel_com_previsao(
+            xg_home,
+            xg_away,
+            previsao
+        )
+
         if previsao == "Casa":
-            resultado_texto = f"vitória do {time_casa}"
-            st.success(
-                f"🏆 Resultado mais provável: **{resultado_texto}**"
-            )
+            resultado_texto = f"Vitória prevista: {time_casa}"
         elif previsao == "Fora":
-            resultado_texto = f"vitória do {time_fora}"
-            st.success(
-                f"🏆 Resultado mais provável: **{resultado_texto}**"
-            )
+            resultado_texto = f"Vitória prevista: {time_fora}"
         else:
-            resultado_texto = "empate"
-            st.info(
-                "🤝 Resultado mais provável: **empate**"
-            )
+            resultado_texto = "Empate previsto"
+
+        escudo_casa = html_escudo(time_casa)
+        escudo_fora = html_escudo(time_fora)
+
+        st.markdown(
+            f"""
+            <div class="match-card">
+                <div class="match-teams-row">
+                    <div class="team-side">
+                        {escudo_casa}
+                        <div class="match-team-name">{escape(time_casa)}</div>
+                    </div>
+                    <div class="vs">×</div>
+                    <div class="team-side">
+                        {escudo_fora}
+                        <div class="match-team-name">{escape(time_fora)}</div>
+                    </div>
+                </div>
+                <div class="prediction-score-divider"></div>
+                <div class="prediction-score-label">Placar previsto pela IA</div>
+                <div class="prediction-score">{placar[0]} <span class="vs">×</span> {placar[1]}</div>
+                <div class="prediction-outcome">{escape(resultado_texto)}</div>
+                <div class="prediction-disclaimer">
+                    Estimativa gerada por inteligência artificial. Não é o resultado real do jogo.
+                </div>
+            </div>
+            """,
+            unsafe_allow_html=True
+        )
 
         # Leitura rápida do confronto
         diferenca_xg = xg_home - xg_away
@@ -1171,7 +1383,7 @@ with aba_previsao:
         with col1:
 
             st.metric(
-                "Placar mais provável",
+                "Placar previsto pela IA",
                 f"{placar[0]} × {placar[1]}"
             )
 
@@ -1185,7 +1397,7 @@ with aba_previsao:
         st.divider()
 
         st.subheader(
-            "5 placares mais prováveis"
+            "5 placares com maior probabilidade individual"
         )
 
         placares = top_placares(
@@ -1217,8 +1429,10 @@ with aba_previsao:
         )
 
         st.caption(
-            "As probabilidades e os placares são estimativas do modelo "
-            "e não representam garantia do resultado real."
+            "A lista mostra a probabilidade individual de cada placar. "
+            "O placar em destaque é escolhido para ser compatível com a tendência "
+            "de vitória, empate ou derrota indicada pelo modelo. Tudo é estimativa "
+            "da IA e não representa o resultado real nem uma garantia."
         )
 
         st.divider()
